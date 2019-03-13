@@ -16,6 +16,9 @@ namespace NLuaSerialConsole
         private SerialPortStream src;
         private static readonly ILog Log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
         static string SettingsFile = "settings.lua";
+        private static string PROCESS_LUA = "/";
+        private static string PROCESS_RAW_SEND = ">";
+        private static string PROCESS_LUA_PRINT = "!";
 
         public LuaConsole()
         {
@@ -24,7 +27,8 @@ namespace NLuaSerialConsole
             byte[] readBuffer = new byte[8192];
             src.DataReceived += (s, e) =>
             {
-                int bytes = src.Read(readBuffer, 0, readBuffer.Length);
+                
+                int bytes = ((SerialPortStream)s).Read(readBuffer, 0, readBuffer.Length);
                 byte[] buf = new byte[bytes];
                 Buffer.BlockCopy(readBuffer, 0, buf, 0, bytes);
                 string str = Encoding.ASCII.GetString(buf);
@@ -78,8 +82,8 @@ namespace NLuaSerialConsole
             LoadSettings();
             try
             {
-                src.PortName = (string)L["settings.serial.com_port"];
-                src.BaudRate = (int)L["settings.serial.baud_rate"];
+                src.PortName = (string)L["settings.serial_port.com_port"];
+                src.BaudRate = Convert.ToInt32(L["settings.serial_port.baud_rate"]);
             }
             catch(Exception ex)
             {
@@ -119,7 +123,7 @@ namespace NLuaSerialConsole
                             switch (input.Substring(0, 1))
                             {
                                 //Make a lua call
-                                case "/":
+                                case "!":
                                     input = input.Substring(1);
                                     if (input.Substring(input.Length - 1) == "+")
                                     {
@@ -151,14 +155,14 @@ namespace NLuaSerialConsole
                                 case ">": /*Raw write to the serial port if it's open*/
                                     if(src.IsOpen)
                                     {
-                                        src.Write(input.Substring(1));
+                                        src.Write(input.Substring(1) + "\n");
                                     }
                                     else
                                     {
                                         Log.Warn("Serial port not open.");
                                     }
                                     break;
-                                case "!":
+                                case "?":
                                     //wrap the string in a lua print(...) statement
                                     L.DoString(string.Format("print({0})",input.Substring(1)));
                                     break;
@@ -174,6 +178,10 @@ namespace NLuaSerialConsole
                                             RunFile(cmds);
                                             break;
                                         case "load":
+                                            if(cmds[1] == "settings")
+                                            {
+                                                LoadSettings();
+                                            }
                                             //configurations
                                             break;
                                         case "show":
@@ -218,8 +226,6 @@ namespace NLuaSerialConsole
             }
             else if (cmds[1] == "ports")
             {
-
-
                 foreach (PortDescription desc in SerialPortStream.GetPortDescriptions())
                 {
                     Console.WriteLine("Port Name: " + desc.Port + " Description: " + 

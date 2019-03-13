@@ -16,9 +16,11 @@ namespace NLuaSerialConsole
         private SerialPortStream src;
         private static readonly ILog Log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
         static string SettingsFile = "settings.lua";
-        private static string PROCESS_LUA = "/";
-        private static string PROCESS_RAW_SEND = ">";
-        private static string PROCESS_LUA_PRINT = "!";
+        private const string PROCESS_LUA = "!";
+        private const string PROCESS_RAW_SEND = ">";
+        private const string PROCESS_LUA_PRINT = "?";
+        private const string PROCESS_BUFFER_INPUT = "+";
+        private const string PROCESS_END_BUFFER = "=";
 
         public LuaConsole()
         {
@@ -42,14 +44,49 @@ namespace NLuaSerialConsole
             L["src"] = src;
             L["log"] = Log;
         }
+
         private void help()
         {
             StringBuilder sb = new StringBuilder();
             sb.AppendLine("There is no help for you.");
+            string help = @"
+Commands:
+q - quit.
+open serial - open the currently configured serial port.
+run <filename> - execute a lua script.
+load settings - reload the settings file. Hard coded to ./settings.lua in the executable directory.
+show [version|ports] - 'version' displays the current version. 'ports' lists all the ports on the computer.
+clear - clears the screen.
 
+Switches:
+> - Send raw output
+! - execute lua command. To buffer multiple lines use '! <line one> + ' and then end your final line with =.
+    Example:
+    ! t = {'a','b','c'} =
+    ! for i,v in pairs(t) do
+    ! print(i,v)
+    ! end =
+? - Print a value from lua.  
+    Example: ?src.PortName
+    (Equivelent to the lua command print(src.PortName)
+
+Important Variables:
+src - The serial port. example: !src.PortName = 'COM14'
+    Other helpfuls:
+    src:Open()
+    src:Close()
+    src:BuadRate = 
+log - The application logger. Uses log4net. example: log:Error(""Oops"")
+    [Error|Warn|Info|Debug].
+";
             Console.WriteLine(sb.ToString());
+            Console.Write(help);
         }
 
+        /// <summary>
+        /// Run a Lua file.
+        /// </summary>
+        /// <param name="args"></param>
         private void RunFile(string[] args)
         {
             Lua local = new Lua();
@@ -102,14 +139,14 @@ namespace NLuaSerialConsole
                 {
                     if (bufferMode)
                     {
-                        Console.Write(">");
+                        Console.Write(PROCESS_LUA);
                     }
                     input = Console.ReadLine();
                     if (input.Length > 0)
                     {
                         if (bufferMode)
                         {
-                            input = ">" + input;
+                            input = PROCESS_LUA + input;
                         }
                         if (input == "q")
                         {
@@ -123,9 +160,9 @@ namespace NLuaSerialConsole
                             switch (input.Substring(0, 1))
                             {
                                 //Make a lua call
-                                case "!":
+                                case PROCESS_LUA:
                                     input = input.Substring(1);
-                                    if (input.Substring(input.Length - 1) == "+")
+                                    if (input.Substring(input.Length - 1) == PROCESS_BUFFER_INPUT)
                                     {
                                         bufferMode = true;
                                         input = input.Substring(0, input.Length - 1);
@@ -133,7 +170,7 @@ namespace NLuaSerialConsole
                                     }
                                     else if (bufferMode)
                                     {
-                                        if (input.Substring(input.Length - 1) == "=")
+                                        if (input.Substring(input.Length - 1) == PROCESS_END_BUFFER)
                                         {
                                             buffer.Append(input.Substring(0, input.Length - 1));
                                             input = buffer.ToString();
@@ -152,7 +189,7 @@ namespace NLuaSerialConsole
                                     }
 
                                     break;
-                                case ">": /*Raw write to the serial port if it's open*/
+                                case PROCESS_RAW_SEND: /*Raw write to the serial port if it's open*/
                                     if(src.IsOpen)
                                     {
                                         src.Write(input.Substring(1) + "\n");
@@ -162,7 +199,7 @@ namespace NLuaSerialConsole
                                         Log.Warn("Serial port not open.");
                                     }
                                     break;
-                                case "?":
+                                case PROCESS_LUA_PRINT:
                                     //wrap the string in a lua print(...) statement
                                     L.DoString(string.Format("print({0})",input.Substring(1)));
                                     break;

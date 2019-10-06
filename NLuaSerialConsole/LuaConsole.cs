@@ -17,10 +17,13 @@ namespace NLuaSerialConsole
         private static readonly ILog Log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
         static string SettingsFile = "settings.lua";
         private const string PROCESS_LUA = "!";
-        private const string PROCESS_RAW_SEND = ">";
+        private const string PROCESS_CONSOLE_CMD = ">";
         private const string PROCESS_LUA_PRINT = "?";
         private const string PROCESS_BUFFER_INPUT = "+";
         private const string PROCESS_END_BUFFER = "=";
+        private string _lineEnding = "\r\n";
+        private bool _logging;
+        private string _lastMessage = "";
 
         public LuaConsole()
         {
@@ -34,12 +37,18 @@ namespace NLuaSerialConsole
                 byte[] buf = new byte[bytes];
                 Buffer.BlockCopy(readBuffer, 0, buf, 0, bytes);
                 string str = Encoding.ASCII.GetString(buf);
-                Console.Write(str);
+                int len = _lastMessage.Length;
+                if (!string.IsNullOrEmpty(_lastMessage) &&  str.Length >= len &&  str.Substring(0, len) == _lastMessage)
+                {
+                    str = str.Substring(len);
+                }
+                 Console.Write(str);
+
             };
 
             src.ErrorReceived += (s, e) =>
             {
-                Console.WriteLine("===> EventType: {0}", e.EventType);
+                WriteConsole($"===> EventType: {e.EventType}");
             };
             L["src"] = src;
             L["log"] = Log;
@@ -51,16 +60,17 @@ namespace NLuaSerialConsole
             sb.AppendLine("There is no help for you.");
             string help = @"
 Commands:
-q - quit.
-open serial - open the currently configured serial port.
-run <filename> - execute a lua script.
-load settings - reload the settings file. Hard coded to ./settings.lua in the executable directory.
-show [version|ports] - 'version' displays the current version. 'ports' lists all the ports on the computer.
-clear - clears the screen.
+>q - quit.
+>open serial - open the currently configured serial port.
+>run <filename> - execute a lua script.
+>load settings - reload the settings file. Hard coded to ./settings.lua in the executable directory.
+>script [close] | <filename> - Opens a file and dumps all stdin and stdout to that file. >script close will close the file. Only one file is allowed at a time.
+>show [version|ports] - 'version' displays the current version. 'ports' lists all the ports on the computer.
+>clear - clears the screen.
 
 Switches:
-> - Send raw output
-! - execute lua command. To buffer multiple lines use '! <line one> + ' and then end your final line with =.
+> - Execute a console command. See Commands.
+! - Execute lua command. To buffer multiple lines use '! <line one> + ' and then end your final line with =.
     Example:
     ! t = {'a','b','c'} =
     ! for i,v in pairs(t) do
@@ -79,7 +89,7 @@ src - The serial port. example: !src.PortName = 'COM14'
 log - The application logger. Uses log4net. example: log:Error(""Oops"")
     [Error|Warn|Info|Debug].
 ";
-            Console.WriteLine(sb.ToString());
+            WriteConsole(sb.ToString());
             Console.Write(help);
         }
 
@@ -91,6 +101,8 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
         {
             Lua local = new Lua();
             System.IO.FileInfo f = new System.IO.FileInfo(args[1]);
+            local["src"] = src;
+            local["log"] = Log;
             if (f.Exists && f.Length > 0)
             {
                 local.DoFile(args[1]);
@@ -109,7 +121,7 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             }
             catch(Exception ex)
             {
-                Console.WriteLine(ex.Message);
+                WriteConsole(ex.Message);
             }
         }
 
@@ -121,6 +133,16 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             {
                 src.PortName = (string)L["settings.serial_port.com_port"];
                 src.BaudRate = Convert.ToInt32(L["settings.serial_port.baud_rate"]);
+                string le = (string)L["settings.line_ending"];
+                if (le == "unix")
+                {
+                    _lineEnding = "\n";
+                }
+                else if(le == "windows")
+                {
+                    _lineEnding = "\r\n";
+                }
+
             }
             catch(Exception ex)
             {
@@ -141,17 +163,18 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
                     {
                         Console.Write(PROCESS_LUA);
                     }
-                    input = Console.ReadLine();
+                    input = ReadConsole();
                     if (input.Length > 0)
                     {
                         if (bufferMode)
                         {
                             input = PROCESS_LUA + input;
                         }
-                        if (input == "q")
+                        if (input == ">q")
                         {
                             running = false;
-                            Log.Info("Closing...");
+                            Close(new string[] { "serial" });                            
+                            Log.Info("Exiting Application...");
                             continue;
                         }
                         else
@@ -189,25 +212,15 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
                                     }
 
                                     break;
-                                case PROCESS_RAW_SEND: /*Raw write to the serial port if it's open*/
-                                    if(src.IsOpen)
-                                    {
-                                        src.Write(input.Substring(1) + "\n");
-                                    }
-                                    else
-                                    {
-                                        Log.Warn("Serial port not open.");
-                                    }
-                                    break;
-                                case PROCESS_LUA_PRINT:
-                                    //wrap the string in a lua print(...) statement
-                                    L.DoString(string.Format("print({0})",input.Substring(1)));
-                                    break;
-                                default:
+                                case PROCESS_CONSOLE_CMD: /*Raw write to the serial port if it's open*/
+                                    input = input.Substring(1).Trim();
                                     string[] cmds = input.Split(' ');
 
                                     switch (cmds[0])
                                     {
+                                        case "close":
+                                            Close(cmds);
+                                            break;
                                         case "open":
                                             Open(cmds);
                                             break;
@@ -215,11 +228,14 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
                                             RunFile(cmds);
                                             break;
                                         case "load":
-                                            if(cmds[1] == "settings")
+                                            if (cmds[1] == "settings")
                                             {
                                                 LoadSettings();
                                             }
                                             //configurations
+                                            break;
+                                        case "script":
+                                            Script(cmds);
                                             break;
                                         case "show":
                                             Show(cmds);
@@ -236,6 +252,21 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
                                     }
 
                                     break;
+                                case PROCESS_LUA_PRINT:
+                                    //wrap the string in a lua print(...) statement
+                                    L.DoString(string.Format("print({0})", input.Substring(1)));
+                                    break;
+                                default:
+                                    if (src.IsOpen)
+                                    {
+                                        WriteRemote(input);
+                                        _lastMessage = input;
+                                    }
+                                    else
+                                    {
+                                        Log.Warn("Serial port not open.");
+                                    }
+                                    break;                           
                             }
                         }
                     }
@@ -251,6 +282,23 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             }
         }
 
+        private void Script(string[] cmds)
+        {
+            if(cmds.Length < 2)
+            {
+                Log.Warn(">script command requires a filename or the 'close' modifier to close the file");
+                return;
+            }
+            if(cmds[1] == "close")
+            {
+                WriteConsole("close the file");
+            }
+            else
+            {
+                WriteConsole($"Yo u wouldhave opened a file named {cmds[1]} if the function was implemented...");
+            }
+        }
+
         private void Show(string[] cmds)
         {
             
@@ -259,13 +307,13 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
                 System.Reflection.Assembly assembly = System.Reflection.Assembly.GetExecutingAssembly();
                 FileVersionInfo fvi = FileVersionInfo.GetVersionInfo(assembly.Location);
                 string version = fvi.FileVersion;
-                Console.WriteLine(version);
+                WriteConsole(version);
             }
             else if (cmds[1] == "ports")
             {
                 foreach (PortDescription desc in SerialPortStream.GetPortDescriptions())
                 {
-                    Console.WriteLine("Port Name: " + desc.Port + " Description: " + 
+                    WriteConsole("Port Name: " + desc.Port + " Description: " + 
                         ((desc.Description == string.Empty)? "No Description provided" : desc.Description));
                 }
             }
@@ -284,16 +332,73 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
                 {
                     if (src.IsOpen)
                     {
-                        Console.WriteLine("Port open. Close it first.");
+                        WriteConsole("Port open. Close it first.");
                         return;
                     }
                     src.Open();
+                    Log.InfoFormat("{0} is open.\r\n", src.PortName);
                 }
                 catch (Exception ex)
                 {
                     Log.Error(ex);
                 }
             }            
+        }
+
+        private void Close(string[] cmds)
+        {
+            if (cmds.Length < 2)
+            {
+                help();
+                return;
+            }
+            if (cmds[1] == "serial")
+            {
+                try
+                {
+                    if (src.IsOpen)
+                    {
+                        
+                        src.Close();                        
+                    }
+                    else
+                    {
+                        WriteConsole("Port is not open.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex);
+                }
+            }
+        }
+
+        private void WriteConsole(string data)
+        {
+            if(_logging)
+            {
+                //write to log
+            }
+            Console.WriteLine(data);
+        }
+
+        private string ReadConsole()
+        {
+            string dataIn = Console.ReadLine();
+            if(_logging)
+            {
+                //write to log
+            }
+            return dataIn;
+        }
+
+        private void WriteRemote(string data)
+        {
+            if(_logging)
+            {
+                //write to log file
+            }
+            src.Write(data + _lineEnding);
         }
     }
 }

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -22,8 +23,9 @@ namespace NLuaSerialConsole
         private const string PROCESS_BUFFER_INPUT = "+";
         private const string PROCESS_END_BUFFER = "=";
         private string _lineEnding = "\r\n";
-        private bool _logging;
         private string _lastMessage = "";
+        private bool _logging;
+        private StreamWriter _scriptLog;
 
         public LuaConsole()
         {
@@ -50,11 +52,12 @@ namespace NLuaSerialConsole
             {
                 WriteConsole($"===> EventType: {e.EventType}");
             };
-            L["src"] = src;
-            L["log"] = Log;
+            //L["src"] = src;
+            //L["log"] = Log;
+            L["this"] = this;
         }
 
-        private void help()
+        public void help()
         {
             StringBuilder sb = new StringBuilder();
             sb.AppendLine("There is no help for you.");
@@ -103,6 +106,7 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             System.IO.FileInfo f = new System.IO.FileInfo(args[1]);
             local["src"] = src;
             local["log"] = Log;
+            local["this"] = this;
             if (f.Exists && f.Length > 0)
             {
                 local.DoFile(args[1]);
@@ -282,44 +286,66 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             }
         }
 
-        private void Script(string[] cmds)
+        public void Script(string[] cmds)
         {
-            if(cmds.Length < 2)
+            if (cmds.Length < 2)
             {
-                Log.Warn(">script command requires a filename or the 'close' modifier to close the file");
+                Log.Info(">script command requires a filename or the 'close' modifier to close the file");
                 return;
             }
             if(cmds[1] == "close")
             {
-                WriteConsole("close the file");
+                if (_scriptLog != null)
+                {
+                    _scriptLog.Close();
+                }
+                _logging = false;
+                string now = DateTime.Now.ToString("yyyy-MMM-dd HH:mm:ss.fff");
+                WriteConsole($"-----------Closed file at {now} -----------------");
             }
             else
             {
-                WriteConsole($"Yo u wouldhave opened a file named {cmds[1]} if the function was implemented...");
+                // This is not an adiquite solution, but it works for the moment. 
+                // none of the log4net messages get into this log. It may be better
+                // to use log4net instead and toggle timesamps on and off through the appender?
+                string path = Path.GetPathRoot(cmds[1]);
+                Console.WriteLine(path);
+                _scriptLog = new StreamWriter(cmds[1]);
+                _scriptLog.AutoFlush = true;
+                _logging = true;
+                string now = DateTime.Now.ToString("yyyy-MMM-dd HH:mm:ss.fff");
+                WriteConsole($"------------- Opened {cmds[1]} at {now} -----------------");
             }
         }
 
-        private void Show(string[] cmds)
+        public void Show(string[] cmds)
         {
-            
-            if(cmds.Length < 2 || cmds[1] == "version")
+
+            if (cmds.Length > 1)
             {
-                System.Reflection.Assembly assembly = System.Reflection.Assembly.GetExecutingAssembly();
-                FileVersionInfo fvi = FileVersionInfo.GetVersionInfo(assembly.Location);
-                string version = fvi.FileVersion;
-                WriteConsole(version);
-            }
-            else if (cmds[1] == "ports")
-            {
-                foreach (PortDescription desc in SerialPortStream.GetPortDescriptions())
+                if (cmds[1] == "version")
                 {
-                    WriteConsole("Port Name: " + desc.Port + " Description: " + 
-                        ((desc.Description == string.Empty)? "No Description provided" : desc.Description));
+                    System.Reflection.Assembly assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                    FileVersionInfo fvi = FileVersionInfo.GetVersionInfo(assembly.Location);
+                    string version = fvi.FileVersion;
+                    WriteConsole(version);
+                }
+                else if (cmds[1] == "ports")
+                {
+                    foreach (PortDescription desc in SerialPortStream.GetPortDescriptions())
+                    {
+                        WriteConsole("Port Name: " + desc.Port + " Description: " +
+                            ((desc.Description == string.Empty) ? "No Description provided" : desc.Description));
+                    }
                 }
             }
+            else
+            {
+                WriteConsole("Show command: Show version | ports");
+            }
         }
 
-        private void Open(string[] cmds)
+        public void Open(string[] cmds)
         {
             if(cmds.Length < 2 )
             {
@@ -345,7 +371,7 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             }            
         }
 
-        private void Close(string[] cmds)
+        public void Close(string[] cmds)
         {
             if (cmds.Length < 2)
             {
@@ -373,30 +399,30 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             }
         }
 
-        private void WriteConsole(string data)
+        public void WriteConsole(string data)
         {
             if(_logging)
             {
-                //write to log
+                _scriptLog.WriteLine(data);                
             }
             Console.WriteLine(data);
         }
 
-        private string ReadConsole()
+        public string ReadConsole()
         {
             string dataIn = Console.ReadLine();
             if(_logging)
             {
-                //write to log
+                _scriptLog.WriteLine(dataIn);
             }
             return dataIn;
         }
 
-        private void WriteRemote(string data)
+        public void WriteRemote(string data)
         {
             if(_logging)
             {
-                //write to log file
+                _scriptLog.WriteLine(data);
             }
             src.Write(data + _lineEnding);
         }

@@ -29,7 +29,7 @@ namespace NLuaSerialConsole
 
         public LuaConsole()
         {
-            L = new Lua();
+            L = NewEnv();
             src = new SerialPortStream();
             byte[] readBuffer = new byte[8192];
             src.DataReceived += (s, e) =>
@@ -40,11 +40,12 @@ namespace NLuaSerialConsole
                 Buffer.BlockCopy(readBuffer, 0, buf, 0, bytes);
                 string str = Encoding.ASCII.GetString(buf);
                 int len = _lastMessage.Length;
+                //This is to stip off whatever the user typed. It's a terrible idea.
                 if (!string.IsNullOrEmpty(_lastMessage) &&  str.Length >= len &&  str.Substring(0, len) == _lastMessage)
                 {
                     str = str.Substring(len);
                 }
-                 Console.Write(str);
+                WriteConsole(str);
 
             };
 
@@ -52,9 +53,6 @@ namespace NLuaSerialConsole
             {
                 WriteConsole($"===> EventType: {e.EventType}");
             };
-            //L["src"] = src;
-            //L["log"] = Log;
-            L["this"] = this;
         }
 
         public void help()
@@ -96,24 +94,38 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             Console.Write(help);
         }
 
+        private Lua NewEnv()
+        {
+            Lua env = new Lua();
+            env["WriteConsole"] = new Action<string>(WriteConsole);
+            env["ReadConsole"] = new Func<string>(ReadConsole);
+            env["WriteRemote"] = new Action<string>(WriteRemote);
+            env["Script"] = new Action<string>(Script);
+            env["Open"] = new Action<string>(Open);
+            env["Close"] = new Action<string>(Close);
+            env["Show"] = new Action<string>(Show);
+            env["IsOpen"] = new Func<bool>(() => src.IsOpen);
+            env["GetPort"] = new Func<string>(() => src.PortName);
+            env["SetPort"] = new Action<string>((portname) => src.PortName = portname);
+                
+            return env;
+        }
+
         /// <summary>
         /// Run a Lua file.
         /// </summary>
         /// <param name="args"></param>
-        private void RunFile(string[] args)
+        private void RunFile(string file)
         {
-            Lua local = new Lua();
-            System.IO.FileInfo f = new System.IO.FileInfo(args[1]);
-            local["src"] = src;
-            local["log"] = Log;
-            local["this"] = this;
+            Lua local = NewEnv();            
+            System.IO.FileInfo f = new System.IO.FileInfo(file);
             if (f.Exists && f.Length > 0)
             {
-                local.DoFile(args[1]);
+                local.DoFile(file);
             }
             else
             {
-                Log.WarnFormat("File Not Found: {0}\r\n", args[1]);
+                Log.WarnFormat("File Not Found: {0}\r\n", file);
             }
         }
 
@@ -177,7 +189,7 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
                         if (input == ">q")
                         {
                             running = false;
-                            Close(new string[] { "serial" });                            
+                            Close("serial");                            
                             Log.Info("Exiting Application...");
                             continue;
                         }
@@ -220,29 +232,43 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
                                     input = input.Substring(1).Trim();
                                     string[] cmds = input.Split(' ');
 
-                                    switch (cmds[0])
+                                    switch (cmds[0].ToLower())
                                     {
                                         case "close":
-                                            Close(cmds);
+                                            if (cmds.Length == 2)
+                                            { Close(cmds[1].ToLower()); }
+                                            else { help(); }
                                             break;
                                         case "open":
-                                            Open(cmds);
+                                            if (cmds.Length == 2)
+                                                Open(cmds[1].ToLower());
+                                            else
+                                                help();
                                             break;
                                         case "run":
-                                            RunFile(cmds);
+                                            if (cmds.Length == 2)
+                                                RunFile(cmds[1].ToLower());
+                                            else
+                                                help();
                                             break;
                                         case "load":
-                                            if (cmds[1] == "settings")
-                                            {
+                                            if (cmds.Length == 2 && cmds[1].ToLower() == "settings")
                                                 LoadSettings();
-                                            }
+                                            else
+                                                help();
                                             //configurations
                                             break;
                                         case "script":
-                                            Script(cmds);
+                                            if (cmds.Length == 2)
+                                                Script(cmds[1].ToLower());
+                                            else
+                                                help();
                                             break;
                                         case "show":
-                                            Show(cmds);
+                                            if (cmds.Length == 2)
+                                                Show(cmds[1].ToLower());
+                                            else
+                                                help();
                                             break;
                                         case "clear":
                                             Console.Clear();
@@ -286,14 +312,9 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             }
         }
 
-        public void Script(string[] cmds)
+        public void Script(string cmds)
         {
-            if (cmds.Length < 2)
-            {
-                Log.Info(">script command requires a filename or the 'close' modifier to close the file");
-                return;
-            }
-            if(cmds[1] == "close")
+            if(cmds == "close")
             {
                 if (_scriptLog != null)
                 {
@@ -308,9 +329,7 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
                 // This is not an adiquite solution, but it works for the moment. 
                 // none of the log4net messages get into this log. It may be better
                 // to use log4net instead and toggle timesamps on and off through the appender?
-                string path = Path.GetPathRoot(cmds[1]);
-                Console.WriteLine(path);
-                _scriptLog = new StreamWriter(cmds[1]);
+                _scriptLog = new StreamWriter(cmds);
                 _scriptLog.AutoFlush = true;
                 _logging = true;
                 string now = DateTime.Now.ToString("yyyy-MMM-dd HH:mm:ss.fff");
@@ -318,25 +337,22 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             }
         }
 
-        public void Show(string[] cmds)
+        public void Show(string cmds)
         {
 
-            if (cmds.Length > 1)
+            if (cmds == "version")
             {
-                if (cmds[1] == "version")
+                System.Reflection.Assembly assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                FileVersionInfo fvi = FileVersionInfo.GetVersionInfo(assembly.Location);
+                string version = fvi.FileVersion;
+                WriteConsole(version);
+            }
+            else if (cmds == "ports")
+            {
+                foreach (PortDescription desc in SerialPortStream.GetPortDescriptions())
                 {
-                    System.Reflection.Assembly assembly = System.Reflection.Assembly.GetExecutingAssembly();
-                    FileVersionInfo fvi = FileVersionInfo.GetVersionInfo(assembly.Location);
-                    string version = fvi.FileVersion;
-                    WriteConsole(version);
-                }
-                else if (cmds[1] == "ports")
-                {
-                    foreach (PortDescription desc in SerialPortStream.GetPortDescriptions())
-                    {
-                        WriteConsole("Port Name: " + desc.Port + " Description: " +
-                            ((desc.Description == string.Empty) ? "No Description provided" : desc.Description));
-                    }
+                    WriteConsole("Port Name: " + desc.Port + " Description: " +
+                        ((desc.Description == string.Empty) ? "No Description provided" : desc.Description));
                 }
             }
             else
@@ -345,14 +361,9 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             }
         }
 
-        public void Open(string[] cmds)
+        public void Open(string cmds)
         {
-            if(cmds.Length < 2 )
-            {
-                help();
-                return;
-            }
-            if (cmds[1] == "serial")
+            if (cmds == "serial")
             {
                 try
                 {
@@ -371,14 +382,14 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             }            
         }
 
-        public void Close(string[] cmds)
+        public void Close(string cmds)
         {
-            if (cmds.Length < 2)
+            if (cmds.Length < 1)
             {
                 help();
                 return;
             }
-            if (cmds[1] == "serial")
+            if (cmds == "serial")
             {
                 try
                 {

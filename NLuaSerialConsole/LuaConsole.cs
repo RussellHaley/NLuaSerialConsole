@@ -99,7 +99,7 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             Lua env = new Lua();
             env["WriteConsole"] = new Action<string>(WriteConsole);
             env["ReadConsole"] = new Func<string>(ReadConsole);
-            env["WriteRemote"] = new Action<string>(WriteRemote);
+            env["WriteRemote"] = new Action<string,bool>(WriteRemote);
             env["Script"] = new Action<string>(Script);
             env["Open"] = new Action<string>(Open);
             env["Close"] = new Action<string>(Close);
@@ -394,9 +394,9 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
                 try
                 {
                     if (src.IsOpen)
-                    {
-                        
-                        src.Close();                        
+                    {                        
+                        src.Close();
+                        WriteConsole("Serial Port Closed.");
                     }
                     else
                     {
@@ -429,13 +429,15 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             return dataIn;
         }
 
-        public void WriteRemote(string data)
+        public void WriteRemote(string data, bool appendLineEnding = true)
         {
             if(_logging)
             {
                 _scriptLog.WriteLine(data);
             }
-            src.Write(data + _lineEnding);
+            data = appendLineEnding ? data + _lineEnding : data;
+            byte[] bytes = Encoding.UTF8.GetBytes(data);
+            src.Write(bytes,0,bytes.Length);
         }
     }
 }

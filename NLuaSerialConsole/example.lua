@@ -33,4 +33,4 @@ for i,v in pairs(bytes) do
 		print(string.format("%x",num))	
 	end
 end
-WriteRemote(cable_info_msg, false)
+SendBinary(cable_info_msg)

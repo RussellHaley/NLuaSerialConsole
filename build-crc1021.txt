@@ -1,0 +1,6 @@
+cl /LD libstarfish.c /I "C:\Program Files (x86)\WinLua\Lua\5.3\include"  /link /LIBPATH "C:\Program Files (x86)\WinLua\Lua\5.3\bin\lua53.lib"
+
+cl /LD msleep.c /I "C:\Program Files (x86)\WinLua\Lua\5.3\include"  /link /LIBPATH "C:\Program Files (x86)\WinLua\Lua\5.3\bin\lua53.lib"
+
+
+cl crc1021.c /I "C:\Program Files (x86)\WinLua\Lua\5.3\include" /link /LIBPATH "C:\Program Files (x86)\WinLua\Lua\5.3\bin\lua53.lib"

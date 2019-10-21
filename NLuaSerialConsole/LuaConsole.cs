@@ -62,7 +62,8 @@ namespace NLuaSerialConsole
             string help = @"
 Commands:
 >q - quit.
->open serial - open the currently configured serial port.
+>open <port> - open a serial port. Opens the port specified or the currently configured port. See Settings File.
+>close - close any open port.
 >run <filename> - execute a lua script.
 >load settings - reload the settings file. Hard coded to ./settings.lua in the executable directory.
 >script [close] | <filename> - Opens a file and dumps all stdin and stdout to that file. >script close will close the file. Only one file is allowed at a time.
@@ -81,12 +82,8 @@ Switches:
     Example: ?src.PortName
     (Equivelent to the lua command print(src.PortName)
 
-Important Variables:
-src - The serial port. example: !src.PortName = 'COM14'
-    Other helpfuls:
-    src:Open()
-    src:Close()
-    src:BuadRate = 
+Important Lua Functions:
+
 log - The application logger. Uses log4net. example: log:Error(""Oops"")
     [Error|Warn|Info|Debug].
 ";
@@ -99,15 +96,18 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             Lua env = new Lua();
             env["WriteConsole"] = new Action<string>(WriteConsole);
             env["ReadConsole"] = new Func<string>(ReadConsole);
-            env["WriteRemote"] = new Action<string,bool>(WriteRemote);
+            //env["SendString"] = new Action<string,bool>(Send);
+            env["SendBinary"] = new Action<byte[]>(Send);
             env["Script"] = new Action<string>(Script);
-            env["Open"] = new Action<string>(Open);
-            env["Close"] = new Action<string>(Close);
+            env["OpenPort"] = new Action<string>(OpenPort2);
+            env["Open"] = new Action(OpenPort);
+            env["Close"] = new Action(ClosePort);
             env["Show"] = new Action<string>(Show);
             env["IsOpen"] = new Func<bool>(() => src.IsOpen);
-            env["GetPort"] = new Func<string>(() => src.PortName);
+            env["GetPort"] = new Func<string>(() => src.PortName);            
             env["SetPort"] = new Action<string>((portname) => src.PortName = portname);
-                
+            env["GetSettings"] = new Func<string>(() => "Not Implemented");
+            env["Log"] = Log;
             return env;
         }
 
@@ -189,7 +189,7 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
                         if (input == ">q")
                         {
                             running = false;
-                            Close("serial");                            
+                            ClosePort();                            
                             Log.Info("Exiting Application...");
                             continue;
                         }
@@ -234,16 +234,14 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
 
                                     switch (cmds[0].ToLower())
                                     {
-                                        case "close":
-                                            if (cmds.Length == 2)
-                                            { Close(cmds[1].ToLower()); }
-                                            else { help(); }
+                                        case "close":                                            
+                                             ClosePort();                                             
                                             break;
                                         case "open":
                                             if (cmds.Length == 2)
-                                                Open(cmds[1].ToLower());
+                                                OpenPort2(cmds[1].ToLower());
                                             else
-                                                help();
+                                                OpenPort();
                                             break;
                                         case "run":
                                             if (cmds.Length == 2)
@@ -289,7 +287,7 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
                                 default:
                                     if (src.IsOpen)
                                     {
-                                        WriteRemote(input);
+                                        Send(input);
                                         _lastMessage = input;
                                     }
                                     else
@@ -361,52 +359,48 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             }
         }
 
-        public void Open(string cmds)
+        public void OpenPort2(string cmds)
         {
-            if (cmds == "serial")
-            {
-                try
-                {
-                    if (src.IsOpen)
-                    {
-                        WriteConsole("Port open. Close it first.");
-                        return;
-                    }
-                    src.Open();
-                    Log.InfoFormat("{0} is open.\r\n", src.PortName);
-                }
-                catch (Exception ex)
-                {
-                    Log.Error(ex);
-                }
-            }            
+            src.PortName = cmds;
+            OpenPort();
         }
 
-        public void Close(string cmds)
+        public void OpenPort()
         {
-            if (cmds.Length < 1)
+            try
             {
-                help();
-                return;
+                if (src.IsOpen)
+                {
+                    WriteConsole("Port open. Close it first.");
+                    return;
+                }
+                src.Open();
+                Log.InfoFormat("{0} is open.\r\n", src.PortName);
             }
-            if (cmds == "serial")
+            catch (Exception ex)
             {
-                try
-                {
-                    if (src.IsOpen)
-                    {                        
-                        src.Close();
-                        WriteConsole("Serial Port Closed.");
-                    }
-                    else
-                    {
-                        WriteConsole("Port is not open.");
-                    }
+                Log.Error(ex);
+            }
+                        
+        }
+
+        public void ClosePort()
+        {
+            try
+            {
+                if (src.IsOpen)
+                {                        
+                    src.Close();
+                    WriteConsole("Serial Port Closed.");
                 }
-                catch (Exception ex)
+                else
                 {
-                    Log.Error(ex);
+                    WriteConsole("Port is not open.");
                 }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex);
             }
         }
 
@@ -429,15 +423,23 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             return dataIn;
         }
 
-        public void WriteRemote(string data, bool appendLineEnding = true)
+        public void Send(string data, bool appendLineEnding = true)
         {
             if(_logging)
             {
                 _scriptLog.WriteLine(data);
             }
             data = appendLineEnding ? data + _lineEnding : data;
-            byte[] bytes = Encoding.UTF8.GetBytes(data);
-            src.Write(bytes,0,bytes.Length);
+            src.Write(data);
+        }
+
+        public void Send(byte[] buffer)
+        {
+            if (_logging)
+            {
+                _scriptLog.WriteLine(buffer);
+            }
+            src.Write(buffer, 0, buffer.Length);
         }
     }
 }

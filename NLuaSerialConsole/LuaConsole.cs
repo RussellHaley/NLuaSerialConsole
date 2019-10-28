@@ -14,6 +14,7 @@ namespace NLuaSerialConsole
     public class LuaConsole
     {
         private Lua L;
+        private Lua _scriptL;
         private SerialPortStream src;
         private static readonly ILog Log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
         static string SettingsFile = "settings.lua";
@@ -26,6 +27,7 @@ namespace NLuaSerialConsole
         private string _lastMessage = "";
         private bool _logging;
         private StreamWriter _scriptLog;
+        private bool _binary = false;
 
         public LuaConsole()
         {
@@ -38,12 +40,24 @@ namespace NLuaSerialConsole
                 int bytes = ((SerialPortStream)s).Read(readBuffer, 0, readBuffer.Length);
                 byte[] buf = new byte[bytes];
                 Buffer.BlockCopy(readBuffer, 0, buf, 0, bytes);
-                string str = Encoding.ASCII.GetString(buf);
-                int len = _lastMessage.Length;
-                //This is to stip off whatever the user typed. It's a terrible idea.
-                if (!string.IsNullOrEmpty(_lastMessage) &&  str.Length >= len &&  str.Substring(0, len) == _lastMessage)
+                string str = "";
+                if (_binary)
                 {
-                    str = str.Substring(len);
+                    
+                    for(int i = 0; i < bytes; i++)
+                    {
+                        str += string.Format("{0:X} ", buf[i]);
+                    }
+                }
+                else
+                {
+                    str = Encoding.ASCII.GetString(buf);
+                    int len = _lastMessage.Length;
+                        //This is to stip off whatever the user typed. It's a terrible idea.
+                    if (!string.IsNullOrEmpty(_lastMessage) && str.Length >= len && str.Substring(0, len) == _lastMessage)
+                    {
+                        str = str.Substring(len);
+                    }
                 }
                 WriteConsole(str);
 
@@ -94,14 +108,16 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
         private Lua NewEnv()
         {
             Lua env = new Lua();
+            env["SetBinary"] = new Action<bool>(SetBinary);
             env["WriteConsole"] = new Action<string>(WriteConsole);
+            env["print"] = new Action<string>(WriteConsole);
             env["ReadConsole"] = new Func<string>(ReadConsole);
             //env["SendString"] = new Action<string,bool>(Send);
             env["SendBinary"] = new Action<byte[]>(Send);
             env["Script"] = new Action<string>(Script);
             env["OpenPort"] = new Action<string>(OpenPort2);
             env["Open"] = new Action(OpenPort);
-            env["Close"] = new Action(ClosePort);
+            env["ClosePort"] = new Action(ClosePort);
             env["Show"] = new Action<string>(Show);
             env["IsOpen"] = new Func<bool>(() => src.IsOpen);
             env["GetPort"] = new Func<string>(() => src.PortName);            
@@ -111,22 +127,47 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             return env;
         }
 
+        private void SetBinary(bool isBinary)
+        {            
+            _binary = isBinary;
+            WriteConsole($"SetBinary = {isBinary}");
+        }
+
         /// <summary>
         /// Run a Lua file.
         /// </summary>
         /// <param name="args"></param>
         private void RunFile(string file)
         {
-            Lua local = NewEnv();            
-            System.IO.FileInfo f = new System.IO.FileInfo(file);
-            if (f.Exists && f.Length > 0)
+            try
             {
-                local.DoFile(file);
+                _scriptL = NewEnv();
+                //TODO: Check for relative path and append script_path if it's available
+                //HACK...
+                Directory.SetCurrentDirectory((string)L["settings.script_path"]);
+                System.IO.FileInfo f = new System.IO.FileInfo(file);
+                if (f.Exists && f.Length > 0)
+                {
+                    _scriptL["RUNNING__"] = true;
+                    _scriptL.DoFile(file);
+                    _scriptL.Close();
+                    _scriptL = null;
+
+                }
+                else
+                {
+                    Log.WarnFormat("File Not Found: {0}\r\n", file);
+                }
             }
-            else
+            catch(Exception ex)
             {
-                Log.WarnFormat("File Not Found: {0}\r\n", file);
+                Log.Error(ex.Message, ex);
+                if (_logging) { Script("close"); }
+                _scriptL.Close();
+                _scriptL = null;
+
             }
+
         }
 
         private void LoadSettings()
@@ -188,9 +229,18 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
                         }
                         if (input == ">q")
                         {
-                            running = false;
-                            ClosePort();                            
+                            running = false;                            
+                            if(_scriptL != null) { _scriptL.Close(); _scriptL.Dispose(); }
+                            ClosePort();
                             Log.Info("Exiting Application...");
+                            continue;
+                        }
+                        else if (input == ">d")
+                        {
+                            if (_scriptL != null)
+                            {
+                                _scriptL["RUNNING__"] = false;
+                            }
                             continue;
                         }
                         else
@@ -245,7 +295,19 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
                                             break;
                                         case "run":
                                             if (cmds.Length == 2)
-                                                RunFile(cmds[1].ToLower());
+                                            {
+                                                if (_scriptL == null)
+                                                {
+                                                    System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                                                    {                                                        
+                                                        RunFile(cmds[1].ToLower());
+                                                    }, null);
+                                                }
+                                                else
+                                                {
+                                                    Log.Warn("Script already running. >d to close it.");
+                                                }
+                                            }
                                             else
                                                 help();
                                             break;
@@ -435,11 +497,18 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
 
         public void Send(byte[] buffer)
         {
-            if (_logging)
+            if (buffer != null)
             {
-                _scriptLog.WriteLine(buffer);
+                if (_logging)
+                {
+                    _scriptLog.WriteLine(buffer);
+                }
+                src.Write(buffer, 0, buffer.Length);
             }
-            src.Write(buffer, 0, buffer.Length);
+            else
+            {
+                Log.Error("Buffer was null");
+            }
         }
     }
 }

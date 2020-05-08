@@ -174,7 +174,8 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
         {
             try
             {
-                L.DoFile(SettingsFile);
+                string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, SettingsFile);
+                L.DoFile(path);
             }
             catch(Exception ex)
             {

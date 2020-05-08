@@ -5,6 +5,7 @@
 #include <windows.h>
 #include "winlua.h"
 #include <stdio.h>
+#include "crc32.h"
 
 char* month[12] = 
 	{
@@ -70,6 +71,88 @@ int crc16(lua_State *L)
 	return 1;
 }
 
+int crc32(lua_State *L)
+{
+	crc_t crc = 0xffffffff;
+	size_t len = 0;
+	const char *buff = lua_tolstring(L,-1,&len);
+	//~ printf("string len: %d\r\n", len);
+	for(int i = 0; i < len; i++)
+	{
+		//~ printf("%d\r\n", buff[i]);
+		crc = crc32_c(buff, len);
+	}
+	lua_pushnumber(L, crc);
+	return 1;
+}
+
+
+static unsigned long reflect(unsigned long data, unsigned char nBits)
+{
+	unsigned long  reflection = 0x00000000;
+	unsigned char  bit;
+
+	/*
+	* Reflect the data about the center bit.
+	*/
+	for (bit = 0; bit < nBits; ++bit)
+	{
+		/*
+		* If the LSB bit is set, set the reflection of it.
+		*/
+		if (data & 0x01)
+		{
+			reflection |= (1 << ((nBits - 1) - bit));
+		}
+
+		data = (data >> 1);
+	}
+
+	return (reflection);
+
+}	/* reflect() */
+
+crc_t crc32_c(unsigned char const message[], int nBytes)
+{
+	crc_t          remainder = INITIAL_REMAINDER;
+	int            byte;
+	unsigned char  bit;
+	/*
+	* Perform modulo-2 division, a byte at a time.
+	*/
+	for (byte = 0; byte < nBytes; ++byte)
+	{
+		/*
+		* Bring the next byte into the remainder.
+		*/
+		remainder ^= (REFLECT_DATA(message[byte]) << (WIDTH - 8));
+
+		/*
+		* Perform modulo-2 division, a bit at a time.
+		*/
+		for (bit = 8; bit > 0; --bit)
+		{
+			/*
+			* Try to divide the current data bit.
+			*/
+			if (remainder & TOPBIT)
+			{
+				remainder = (remainder << 1) ^ POLYNOMIAL;
+			}
+			else
+			{
+				remainder = (remainder << 1);
+			}
+		}
+	}
+
+	/*
+	* The final remainder is the CRC result.
+	*/
+	return (REFLECT_REMAINDER(remainder) ^ FINAL_XOR_VALUE);
+}
+
+
 #ifdef _WIN32
 int msleep_c(lua_State *L)
 {
@@ -89,8 +172,8 @@ int gettime(lua_State *L)
 {
 	SYSTEMTIME time;
 
-	int utc = lua_tointeger(L, -1);
-	if(utc > 0)
+	int utc = lua_toboolean(L, -1);
+	if(utc != null && utc)
 	{
 		GetSystemTime(&time);
 	}
@@ -126,6 +209,7 @@ int gettime(lua_State *L)
 static const struct luaL_Reg starfish_functions [] = {
 	{"hash_1021_c", hash},
 	{"crc16_c", crc16},
+	{"crc32_c", crc32},
 	{"msleep", msleep_c},
 	{"gettime", gettime},
 	{NULL,NULL}}; //EOL Marker

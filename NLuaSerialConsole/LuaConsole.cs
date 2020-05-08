@@ -28,7 +28,6 @@ namespace NLuaSerialConsole
         private bool _logging;
         private StreamWriter _scriptLog;
         private bool _binary = false;
-
         public LuaConsole()
         {
             L = NewEnv();
@@ -112,9 +111,10 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             env["WriteConsole"] = new Action<string>(WriteConsole);
             env["print"] = new Action<string>(WriteConsole);
             env["ReadConsole"] = new Func<string>(ReadConsole);
-            //env["SendString"] = new Action<string,bool>(Send);
+            env["Send"] = new Action<string, bool>(Send);
             env["SendBinary"] = new Action<byte[]>(Send);
             env["Script"] = new Action<string>(Script);
+            env["EndScript"] = new Action(EndScript);
             env["OpenPort"] = new Action<string>(OpenPort2);
             env["Open"] = new Action(OpenPort);
             env["ClosePort"] = new Action(ClosePort);
@@ -133,6 +133,13 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             WriteConsole($"SetBinary = {isBinary}");
         }
 
+        private void EndScript()
+        {
+            _scriptL["RUNNING__"] = false;
+            _scriptL.Close();
+            _scriptL = null;
+            Directory.SetCurrentDirectory(AppDomain.CurrentDomain.BaseDirectory);
+        }
         /// <summary>
         /// Run a Lua file.
         /// </summary>
@@ -141,22 +148,25 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
         {
             try
             {
+                string scriptDir = (string)L["settings.script_path"];
+                file = file.Replace("\"", "");
                 _scriptL = NewEnv();
                 //TODO: Check for relative path and append script_path if it's available
                 //HACK...
-                Directory.SetCurrentDirectory((string)L["settings.script_path"]);
+                Directory.SetCurrentDirectory(scriptDir);
                 System.IO.FileInfo f = new System.IO.FileInfo(file);
                 if (f.Exists && f.Length > 0)
                 {
                     _scriptL["RUNNING__"] = true;
                     _scriptL.DoFile(file);
-                    _scriptL.Close();
-                    _scriptL = null;
-
+                    EndScript();
                 }
                 else
                 {
-                    Log.WarnFormat("File Not Found: {0}\r\n", file);
+                    string warning = string.Format("File Not Found: {0}\r\n**Script Directory is \"{1}\"\r\n", file, scriptDir);                 
+                    Log.WarnFormat(warning);
+                    _scriptL.Close();
+                    _scriptL = null;
                 }
             }
             catch(Exception ex)
@@ -240,7 +250,7 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
                         {
                             if (_scriptL != null)
                             {
-                                _scriptL["RUNNING__"] = false;
+                                EndScript();
                             }
                             continue;
                         }
@@ -373,17 +383,26 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             }
         }
 
+        public void CloseScript()
+        {
+            if (_scriptLog != null)
+            {
+                _scriptLog.Close();
+            }
+            _logging = false;
+            string now = DateTime.Now.ToString("yyyy-MMM-dd HH:mm:ss.fff");
+            WriteConsole($"-----------Closed file at {now} -----------------");
+        }
         public void Script(string cmds)
         {
-            if(cmds == "close")
+            cmds = cmds.Replace("\"", string.Empty);
+            if (cmds == "")
             {
-                if (_scriptLog != null)
-                {
-                    _scriptLog.Close();
-                }
-                _logging = false;
-                string now = DateTime.Now.ToString("yyyy-MMM-dd HH:mm:ss.fff");
-                WriteConsole($"-----------Closed file at {now} -----------------");
+                Log.Error("Please supply a filename.");
+            }
+            else if (cmds == "close")
+            {
+                CloseScript();
             }
             else
             {
@@ -394,7 +413,7 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
                 _scriptLog.AutoFlush = true;
                 _logging = true;
                 string now = DateTime.Now.ToString("yyyy-MMM-dd HH:mm:ss.fff");
-                WriteConsole($"------------- Opened {cmds[1]} at {now} -----------------");
+                WriteConsole($"------------- Opened {cmds} at {now} -----------------");
             }
         }
 

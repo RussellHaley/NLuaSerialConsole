@@ -7,7 +7,8 @@
 			baud_rate=115200
 	},
 --	script_path = 'c:\\users\\russh\\source\\repos\\NLuaSerialConsole\\Lua\\protocols\\sfdq'
-	script_path = 'C:\\Users\\rhaley\\git\\NLuaSerialConsole\\Lua\\protocols\\Canary'
+--	script_path = 'C:\\Users\\rhaley\\git\\NLuaSerialConsole\\Lua\\protocols\\Canary'
+script_path = 'C:\\Users\\rhaley\\git\\NLuaSerialConsole\\NLuaSerialConsole\\'
 }
 
 --C:\Users\rhaley\git\NLuaSerialConsole\Lua\protocols\Canary

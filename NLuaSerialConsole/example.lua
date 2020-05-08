@@ -22,14 +22,14 @@ local cable_info_msg = ""
 
 --print = WriteConsole
 for i,v in pairs(bytes) do
-	print (v)
+	--print (v)
 	print(string.format("%x",tonumber(v)))
 	cable_info_msg = cable_info_msg .. string.pack("<h", v)
 	num =  string.unpack("<h",cable_info_msg)
 	if not num then print ('nil')
 	else
 		print(cable_info_msg)
-		print(num) 
+--		print(num)
 		print(string.format("%x",num))	
 	end
 end

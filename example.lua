@@ -22,7 +22,7 @@ local cmds2 = {
 "0 setLoggingMask",
 "epi"
 }
-SetBinary(true)
+
 for index ,value in pairs(cmds) do
     for char in value:gmatch(".") do
         SendBinary(char)

@@ -1,4 +1,0 @@
-SubDir TOP ;
-
-LuaSupport ;
-LuaFile Jamfile.lua ;

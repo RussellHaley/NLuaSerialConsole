@@ -1,4 +1,11 @@
-﻿using System;
+﻿/**
+ * Copyright Russell Haley 2020. All Rights Reserved.
+ * 
+ * 
+ * 
+ * 
+ **/
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -15,7 +22,8 @@ namespace NLuaSerialConsole
     {
         private Lua L;
         private Lua _scriptL;
-        private SerialPortStream src;
+        private bool _scriptRunning;
+        private SerialPortStream _src;
         private static readonly ILog Log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
         static string SettingsFile = "settings.lua";
         private const string PROCESS_LUA = "!";
@@ -28,22 +36,60 @@ namespace NLuaSerialConsole
         private bool _logging;
         private StreamWriter _scriptLog;
         private bool _binary = false;
+        private byte[] _readBuffer = new byte[8192];
+
         public LuaConsole()
         {
             L = NewEnv();
-            src = new SerialPortStream();
-            byte[] readBuffer = new byte[8192];
-            src.DataReceived += (s, e) =>
+            _src = new SerialPortStream();
+
+            _src.DataReceived += (s, e) =>
             {
-                
-                int bytes = ((SerialPortStream)s).Read(readBuffer, 0, readBuffer.Length);
+                int bytes = ((SerialPortStream)s).Read(_readBuffer, 0, _readBuffer.Length);
                 byte[] buf = new byte[bytes];
-                Buffer.BlockCopy(readBuffer, 0, buf, 0, bytes);
+                Buffer.BlockCopy(_readBuffer, 0, buf, 0, bytes);
+                DefaultProcessReceived(buf);
+            };
+            _src.ErrorReceived += (s, e) =>
+            {
+                WriteConsole($"===> EventType: {e.EventType}");
+            };
+        }
+
+        public void AddReceiveHandler(EventHandler<RJCP.IO.Ports.SerialDataReceivedEventArgs> handler)
+        {
+            _src.DataReceived += handler;
+        }
+
+        public void RemoveReceiveHandler(EventHandler<RJCP.IO.Ports.SerialDataReceivedEventArgs> handler)
+        {
+            _src.DataReceived -= handler;
+        }
+
+        private LuaFunction _luaDataReceiveHandler;
+        private string _luaDataReceiveHandlerName;
+
+        public void RegisterLuaHandler(string functionName)
+        {
+            _luaDataReceiveHandler = _scriptL[functionName] as LuaFunction;
+            if(_luaDataReceiveHandler == null)
+            {
+                throw new Exception($"Failed to find function {functionName} Lua DataReceiveHandler");
+            }
+        }
+
+        public void RemoveLuaHandler()
+        {
+            _luaDataReceiveHandler = null;
+        }
+
+        private void DefaultProcessReceived(byte[] buf)
+        {       
                 string str = "";
                 if (_binary)
                 {
-                    
-                    for(int i = 0; i < bytes; i++)
+
+                    for (int i = 0; i < buf.Length; i++)
                     {
                         str += string.Format("{0:X} ", buf[i]);
                     }
@@ -52,22 +98,26 @@ namespace NLuaSerialConsole
                 {
                     str = Encoding.ASCII.GetString(buf);
                     int len = _lastMessage.Length;
-                        //This is to stip off whatever the user typed. It's a terrible idea.
+                    //This is to stip off whatever the user typed. It's a terrible idea.
                     if (!string.IsNullOrEmpty(_lastMessage) && str.Length >= len && str.Substring(0, len) == _lastMessage)
                     {
                         str = str.Substring(len);
                     }
                 }
                 WriteConsole(str);
-
-            };
-
-            src.ErrorReceived += (s, e) =>
+            if(_luaDataReceiveHandler != null)
             {
-                WriteConsole($"===> EventType: {e.EventType}");
-            };
+                try
+                {
+                    //string bufstr = Encoding.ASCII.GetString(buf);
+                    _luaDataReceiveHandler.Call(buf);
+                }
+                catch(Exception ex)
+                {
+                    Log.Error(ex.Message, ex);
+                }
+            }
         }
-
         public void help()
         {
             StringBuilder sb = new StringBuilder();
@@ -119,10 +169,12 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             env["Open"] = new Action(OpenPort);
             env["ClosePort"] = new Action(ClosePort);
             env["Show"] = new Action<string>(Show);
-            env["IsOpen"] = new Func<bool>(() => src.IsOpen);
-            env["GetPort"] = new Func<string>(() => src.PortName);            
-            env["SetPort"] = new Action<string>((portname) => src.PortName = portname);
+            env["IsOpen"] = new Func<bool>(() => _src.IsOpen);
+            env["GetPort"] = new Func<string>(() => _src.PortName);            
+            env["SetPort"] = new Action<string>((portname) => _src.PortName = portname);
             env["GetSettings"] = new Func<string>(() => "Not Implemented");
+            env["WireUp"] = new Action<string>(RegisterLuaHandler);
+            env["Unhook"] = new Action(RemoveLuaHandler);
             env["Log"] = Log;
             return env;
         }
@@ -136,8 +188,9 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
         private void EndScript()
         {
             _scriptL["RUNNING__"] = false;
+            System.Threading.Thread.Sleep(100);
             _scriptL.Close();
-            _scriptL = null;
+            _scriptL.Dispose();
             Directory.SetCurrentDirectory(AppDomain.CurrentDomain.BaseDirectory);
         }
         /// <summary>
@@ -163,19 +216,16 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
                 }
                 else
                 {
-                    string warning = string.Format("File Not Found: {0}\r\n**Script Directory is \"{1}\"\r\n", file, scriptDir);                 
+                    string warning = string.Format("File Not Found: {0}\r\n**Script Directory is \"{1}\"\r\n", file, scriptDir);
                     Log.WarnFormat(warning);
-                    _scriptL.Close();
-                    _scriptL = null;
+                    EndScript();
                 }
             }
             catch(Exception ex)
             {
                 Log.Error(ex.Message, ex);
                 if (_logging) { Script("close"); }
-                _scriptL.Close();
-                _scriptL = null;
-
+                EndScript();
             }
 
         }
@@ -199,8 +249,8 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             LoadSettings();
             try
             {
-                src.PortName = (string)L["settings.serial_port.com_port"];
-                src.BaudRate = Convert.ToInt32(L["settings.serial_port.baud_rate"]);
+                _src.PortName = (string)L["settings.serial_port.com_port"];
+                _src.BaudRate = Convert.ToInt32(L["settings.serial_port.baud_rate"]);
                 string le = (string)L["settings.line_ending"];
                 if (le == "unix")
                 {
@@ -322,6 +372,9 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
                                             else
                                                 help();
                                             break;
+                                        case "end":
+                                            EndScript();
+                                            break;
                                         case "load":
                                             if (cmds.Length == 2 && cmds[1].ToLower() == "settings")
                                                 LoadSettings();
@@ -358,7 +411,7 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
                                     L.DoString(string.Format("print({0})", input.Substring(1)));
                                     break;
                                 default:
-                                    if (src.IsOpen)
+                                    if (_src.IsOpen)
                                     {
                                         Send(input);
                                         _lastMessage = input;
@@ -419,7 +472,7 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
 
         public void Show(string cmds)
         {
-
+            //TODO: settings, cwd, 
             if (cmds == "version")
             {
                 System.Reflection.Assembly assembly = System.Reflection.Assembly.GetExecutingAssembly();
@@ -443,7 +496,7 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
 
         public void OpenPort2(string cmds)
         {
-            src.PortName = cmds;
+            _src.PortName = cmds;
             OpenPort();
         }
 
@@ -451,13 +504,13 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
         {
             try
             {
-                if (src.IsOpen)
+                if (_src.IsOpen)
                 {
                     WriteConsole("Port open. Close it first.");
                     return;
                 }
-                src.Open();
-                Log.InfoFormat("{0} is open.\r\n", src.PortName);
+                _src.Open();
+                Log.InfoFormat("{0} is open.\r\n", _src.PortName);
             }
             catch (Exception ex)
             {
@@ -470,9 +523,9 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
         {
             try
             {
-                if (src.IsOpen)
+                if (_src.IsOpen)
                 {                        
-                    src.Close();
+                    _src.Close();
                     WriteConsole("Serial Port Closed.");
                 }
                 else
@@ -490,9 +543,9 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
         {
             if(_logging)
             {
-                _scriptLog.WriteLine(data);                
+                _scriptLog.Write(data);                
             }
-            Console.WriteLine(data);
+            Console.Write(data);
         }
 
         public string ReadConsole()
@@ -500,7 +553,7 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             string dataIn = Console.ReadLine();
             if(_logging)
             {
-                _scriptLog.WriteLine(dataIn);
+                _scriptLog.Write(dataIn);
             }
             return dataIn;
         }
@@ -509,10 +562,10 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
         {
             if(_logging)
             {
-                _scriptLog.WriteLine(data);
+                _scriptLog.Write(data);
             }
             data = appendLineEnding ? data + _lineEnding : data;
-            src.Write(data);
+            _src.Write(data);
         }
 
         public void Send(byte[] buffer)
@@ -521,9 +574,10 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
             {
                 if (_logging)
                 {
-                    _scriptLog.WriteLine(buffer);
+                    //This is a cheat and a hacck but...
+                    _scriptLog.Write(Encoding.ASCII.GetString(buffer));
                 }
-                src.Write(buffer, 0, buffer.Length);
+                _src.Write(buffer, 0, buffer.Length);
             }
             else
             {

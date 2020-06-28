@@ -25,9 +25,9 @@ static unsigned long reflect(unsigned long data, unsigned char nBits)
 
 }	/* reflect() */
 
-crc crc32_c(unsigned char const message[], int nBytes)
+crc_t crc32_c(unsigned char const message[], int nBytes)
 {
-	crc            remainder = INITIAL_REMAINDER;
+	crc_t            remainder = INITIAL_REMAINDER;
 	int            byte;
 	unsigned char  bit;
 
@@ -55,7 +55,7 @@ crc crc32_c(unsigned char const message[], int nBytes)
 				remainder = (remainder << 1) ^ POLYNOMIAL;
 			}
 			else
-			{
+				{
 				remainder = (remainder << 1);
 			}
 		}

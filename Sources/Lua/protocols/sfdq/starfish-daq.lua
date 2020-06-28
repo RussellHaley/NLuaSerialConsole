@@ -17,15 +17,42 @@ local function next_seq()
 end
 
 
+local function mk_word(part1, part2, part3)
+	--~ Use table.pack to get a count and then in each case
+	--~ check the types. then we could make error messages more robust
+	local result = 0
+	if not part2 then
+		if type(part1) ~= 'number' then
+			error('not a number')
+		end
+		print(string.format('%02x', part1 & 0xffffffff))
+		result = part1 & 0xffffffff
+		--~ return string.pack('<I',part1 & 0xffffffff) 
+	elseif part3 and type(part1) == 'number' and type(part2) == 'number' 
+		and type(part3) == 'number' then
+		result = (part1 << 16) + (part2 & 0xff) + (part3 & 0xff)
+		--~ string.pack('<I',(part1 << 16) + (part2 & 0xff) + (part3 & 0xff))
+		--~ 16 8 8
+	elseif type(part1) == 'number' and type(part2) == 'number' then
+		--~ return string.pack('<I',(part1 << 16) + (part2 & 0xffff))
+		result = (part1 << 16) + (part2 & 0xffff)
+	else
+		error('An error occured. Could not build 32 bit word from the supplied parts.')
+	end
+	
+	return result
+end
+
 local function stamp(pl)
 	if not pl or type(pl) ~= 'string' then 
 		error('no payload')
 	end	
 	--~ if #pl ~= MAX_PKT_LEN * PACK_SZ then error('MSG WRONG SIZE') end
-	--~ Get the crc 16 of the payload, left shift 16 bits, 
-	--~ mask the payload size to 16 bits and append it. 
-	--~ Pack the result in a string with the header.
-	local str = sp('<I<I',startword,(lstf.crc16_c(pl) << 16) + ((#pl/4) & 0xffff))
+	
+	
+	--~ Get the crc 16 of the payload, pack it in a word with
+	--~ the payload size. Pack the result in a string with the header.
+	local str = sp('<I<I',startword, mk_word(lstf.crc16_c(pl), #pl/4))
 	--~ Append the payload
 	str = str .. pl
 	
@@ -109,27 +136,6 @@ local function extract(packet)
 	msg.words[msg.words.n] = nil
 	msg.words.n = msg.words.n - 1
 	return msg
-end
-
-
-local function mk_word(part1, part2, part3)
-	--~ Use table.pack to get a count and then in each case
-	--~ check the types. then we could make error messages more robust
-	if not part2 then
-		if type(part1) ~= 'number' then
-			error('not a number')
-		end
-		print(string.format('%02x', part1 & 0xffffffff))
-		return string.pack('<I',part1 & 0xffffffff) 
-	elseif part3 and type(part1) == 'number' and type(part2) == 'number' 
-		and type(part3) == 'number' then
-		string.pack('<I',(part1 << 16) + (part2 & 0xff) + (part3 & 0xff))
-		--~ 16 8 8
-	elseif type(part1) == 'number' and type(part2) == 'number' then
-		return string.pack('<I',(part1 << 16) + (part2 & 0xffff))
-	else
-		error('An error occured. Could not build 32 bit word from the supplied parts.')
-	end
 end
 
 local function new(msgs)

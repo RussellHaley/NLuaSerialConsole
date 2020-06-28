@@ -2,6 +2,7 @@
 #include <lauxlib.h>
 #include <lualib.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <windows.h>
 #include "winlua.h"
 #include <stdio.h>
@@ -47,16 +48,7 @@ int16_t crc_1021_c(int16_t old_crc, int8_t data)
 	return crc;
 }
 
-int hash(lua_State *L)
-{
-	int16_t old_crc = lua_tointeger(L, -2);
-	int8_t data = lua_tointeger(L, -1);
-	int16_t new_crc = crc_1021_c(old_crc, data);
-	lua_pushnumber(L, new_crc);
-	return 1;
-}
-
-int crc16(lua_State *L)
+int sf_crc16(lua_State *L)
 {
 	int16_t crc = 0xffff;
 	size_t len = 0;
@@ -86,82 +78,15 @@ int crc32(lua_State *L)
 	return 1;
 }
 
-
-static unsigned long reflect(unsigned long data, unsigned char nBits)
-{
-	unsigned long  reflection = 0x00000000;
-	unsigned char  bit;
-
-	/*
-	* Reflect the data about the center bit.
-	*/
-	for (bit = 0; bit < nBits; ++bit)
-	{
-		/*
-		* If the LSB bit is set, set the reflection of it.
-		*/
-		if (data & 0x01)
-		{
-			reflection |= (1 << ((nBits - 1) - bit));
-		}
-
-		data = (data >> 1);
-	}
-
-	return (reflection);
-
-}	/* reflect() */
-
-crc_t crc32_c(unsigned char const message[], int nBytes)
-{
-	crc_t          remainder = INITIAL_REMAINDER;
-	int            byte;
-	unsigned char  bit;
-	/*
-	* Perform modulo-2 division, a byte at a time.
-	*/
-	for (byte = 0; byte < nBytes; ++byte)
-	{
-		/*
-		* Bring the next byte into the remainder.
-		*/
-		remainder ^= (REFLECT_DATA(message[byte]) << (WIDTH - 8));
-
-		/*
-		* Perform modulo-2 division, a bit at a time.
-		*/
-		for (bit = 8; bit > 0; --bit)
-		{
-			/*
-			* Try to divide the current data bit.
-			*/
-			if (remainder & TOPBIT)
-			{
-				remainder = (remainder << 1) ^ POLYNOMIAL;
-			}
-			else
-			{
-				remainder = (remainder << 1);
-			}
-		}
-	}
-
-	/*
-	* The final remainder is the CRC result.
-	*/
-	return (REFLECT_REMAINDER(remainder) ^ FINAL_XOR_VALUE);
-}
-
-
 #ifdef _WIN32
-int msleep_c(lua_State *L)
+int msleep(lua_State *L)
 {
 	long msecs = lua_tointeger(L, -1);
 	Sleep(msecs);
 	return 1;
 }
 #else
-int msleep_c(lua_State *L){
+int msleep(lua_State *L){
 	long msecs = lua_tointeger(L, -1);
 	usleep(1000*msecs);
 	return 1;
@@ -172,9 +97,11 @@ int gettime(lua_State *L)
 {
 	SYSTEMTIME time;
 
-	int utc = lua_toboolean(L, -1);
-	if(utc != null && utc)
+	bool utc = lua_toboolean(L, -1);
+	
+	if(utc)
 	{
+		printf("UTC? %d", utc);
 		GetSystemTime(&time);
 	}
 	else
@@ -189,7 +116,7 @@ int gettime(lua_State *L)
 	lua_setfield(L, -2, "month");
 	lua_pushinteger(L, time.wDayOfWeek);
 	lua_setfield(L, -2, "dayofweek");
-	lua_pushstring(L, month[time.wMonth]);
+	lua_pushstring(L, month[time.wMonth - 1]);
 	lua_setfield(L, -2, "monthname");
 	lua_pushstring(L, dayofweek[time.wDayOfWeek]);
 	lua_setfield(L, -2, "dayofweekname");
@@ -207,13 +134,14 @@ int gettime(lua_State *L)
 }
 
 static const struct luaL_Reg starfish_functions [] = {
-	{"hash_1021_c", hash},
-	{"crc16_c", crc16},
-	{"crc32_c", crc32},
-	{"msleep", msleep_c},
+	{"sf_crc16", sf_crc16},
+	{"crc32", crc32},
+	{"msleep", msleep},
 	{"gettime", gettime},
-	{NULL,NULL}}; //EOL Marker
+	{NULL,NULL} //EOL Marker
+}; 
 
+//~ __declspec(dllexport) int luaopen_libStarfish(lua_State *L)
 WINLUA_API int luaopen_libstarfish(lua_State *L)
 {
 	luaL_newlib(L, starfish_functions);

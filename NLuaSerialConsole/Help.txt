@@ -1,0 +1,23 @@
+Help:
+>q - quit.
+>open <port> - open a serial port. Opens the port specified or the currently configured port. See Settings File.
+>close - close any open port.
+>run <filename> - execute a lua script.
+>load settings - reload the settings file. Hard coded to ./settings.lua in the executable directory.
+>script [close] | <filename> - Opens a file and dumps all stdin and stdout to that file. >script close will close the file. Only one file is allowed at a time.
+>show [version|ports] - 'version' displays the current version. 'ports' lists all the ports on the computer.
+>clear - clears the screen.
+
+Switches:
+> - Execute a console command. See Commands.
+! - Execute lua command. To buffer multiple lines use '! <line one> + ' and then end your final line with =.
+    Example:
+    ! t = {'a','b','c'} =
+    ! for i,v in pairs(t) do
+    ! print(i,v)
+    ! end =
+? - Print a value from lua.  
+    Example: ?src.PortName
+    (Equivelent to the lua command print(src.PortName)
+
+Type >commands to see the list of lua commands.

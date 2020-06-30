@@ -26,8 +26,8 @@ namespace NLuaSerialConsole
         private SerialPortStream _src;
         private static readonly ILog Log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
         static string SettingsFile = "settings.lua";
-        private const string PROCESS_LUA = "!";
         private const string PROCESS_CONSOLE_CMD = ">";
+        private const string PROCESS_LUA = "!";
         private const string PROCESS_LUA_PRINT = "?";
         private const string PROCESS_BUFFER_INPUT = "+";
         private const string PROCESS_END_BUFFER = "=";
@@ -118,72 +118,13 @@ namespace NLuaSerialConsole
                 }
             }
         }
-        public void help()
+
+        public string readFile(string filepath)
         {
-            StringBuilder sb = new StringBuilder();
-            sb.AppendLine("There is no help for you.");
-            string help = @"
-Commands:
->q - quit.
->open <port> - open a serial port. Opens the port specified or the currently configured port. See Settings File.
->close - close any open port.
->run <filename> - execute a lua script.
->load settings - reload the settings file. Hard coded to ./settings.lua in the executable directory.
->script [close] | <filename> - Opens a file and dumps all stdin and stdout to that file. >script close will close the file. Only one file is allowed at a time.
->show [version|ports] - 'version' displays the current version. 'ports' lists all the ports on the computer.
->clear - clears the screen.
-
-Switches:
-> - Execute a console command. See Commands.
-! - Execute lua command. To buffer multiple lines use '! <line one> + ' and then end your final line with =.
-    Example:
-    ! t = {'a','b','c'} =
-    ! for i,v in pairs(t) do
-    ! print(i,v)
-    ! end =
-? - Print a value from lua.  
-    Example: ?src.PortName
-    (Equivelent to the lua command print(src.PortName)
-
-Type >commands to see the list of lua commands.
-";
-            WriteConsole(sb.ToString());
-            Console.Write(help);
+            string output = System.IO.File.ReadAllText(filepath);
+            return output;
         }
 
-        public void commands()
-        {
-            StringBuilder sb = new StringBuilder();
-            sb.AppendLine("These are the commands available through Lua:");
-            string help = @"
-SetBinary:      bool   - Tells the console if the input/output is binaryy. Data received from the target is displayed in hex
-WriteConsole:   string - Write to this host output
-print                  - synonym for WriteConsole
-ReadConsole            - Wait for user input
-Send:           string - Send a text string. 
-SendBinary:     string - Send a binary string (RH - Is this a necessary command given strings hold binary data in lua?)
-Script:         string - Log the input and output streams to a file. (e.g. record everything that goes to the target and everything that comes back).	
-				            There is currently no timestamps
-EndScript              - Close the input streams created in script. 
-OpenPort:       string - Open the specified serial port
-Open                   - Open the default serial port. The default port is set in the config file or manually set using SetPort
-ClosePort              - Close the current open port
-Show:           string - [ports|version] - Displays avaialble ports or the application version.
-IsOpen                 - returns true if the serial port is open
-GetPort                - Returns serial port information
-SetPort:        string - set the serial port
-GetSettings: <not implemeneted>
-Log                     - This is the logger object and can be used as:
-	Log.Info | 	Log.Debug | Log.Warn | Log.Error | Log.Fatal
-
-(Experimental commands)
-WireUp: add an input handler 
-Unhook: Remove an input handler
-
-";
-            WriteConsole(sb.ToString());
-            Console.Write(help);
-        }
         private Lua NewEnv()
         {
             Lua env = new Lua();
@@ -218,7 +159,7 @@ Unhook: Remove an input handler
         private void EndScript()
         {
             _scriptL["RUNNING__"] = false;
-            System.Threading.Thread.Sleep(100);
+            System.Threading.Thread.Sleep(500);
             _scriptL.Close();
             _scriptL.Dispose();
             Directory.SetCurrentDirectory(AppDomain.CurrentDomain.BaseDirectory);
@@ -318,7 +259,7 @@ Unhook: Remove an input handler
                         {
                             input = PROCESS_LUA + input;
                         }
-                        if (input == ">q")
+                        if (input == PROCESS_CONSOLE_CMD + "q")
                         {
                             running = false;                            
                             if(_scriptL != null) { _scriptL.Close(); _scriptL.Dispose(); }
@@ -326,7 +267,7 @@ Unhook: Remove an input handler
                             Log.Info("Exiting Application...");
                             continue;
                         }
-                        else if (input == ">d")
+                        else if (input == PROCESS_CONSOLE_CMD + "d")
                         {
                             if (_scriptL != null)
                             {
@@ -400,7 +341,7 @@ Unhook: Remove an input handler
                                                 }
                                             }
                                             else
-                                                help();
+                                                WriteConsole(readFile("Help.txt"));
                                             break;
                                         case "end":
                                             EndScript();
@@ -409,29 +350,29 @@ Unhook: Remove an input handler
                                             if (cmds.Length == 2 && cmds[1].ToLower() == "settings")
                                                 LoadSettings();
                                             else
-                                                help();
+                                                WriteConsole(readFile("Help.txt"));
                                             //configurations
                                             break;
                                         case "script":
                                             if (cmds.Length == 2)
                                                 Script(cmds[1].ToLower());
                                             else
-                                                help();
+                                                WriteConsole(readFile("Help.txt"));
                                             break;
                                         case "show":
                                             if (cmds.Length == 2)
                                                 Show(cmds[1].ToLower());
                                             else
-                                                help();
+                                                WriteConsole(readFile("Help.txt"));
                                             break;
                                         case "clear":
                                             Console.Clear();
                                             break;
                                         case "help":
-                                            help();
+                                            WriteConsole(readFile("Help.txt"));
                                             break;
                                         case "commands":
-                                            commands();
+                                            WriteConsole(readFile("Commands.txt"));
                                             break;
                                         default:
                                             Log.WarnFormat("{0} is not a command.", input);
@@ -479,8 +420,12 @@ Unhook: Remove an input handler
             string now = DateTime.Now.ToString("yyyy-MMM-dd HH:mm:ss.fff");
             WriteConsole($"-----------Closed file at {now} -----------------");
         }
+
+        //TODO: This function needs to return a value and if the file fails to open
+        //  we can cancel our script run.
         public void Script(string cmds)
         {
+            //Remove quotes
             cmds = cmds.Replace("\"", string.Empty);
             if (cmds == "")
             {
@@ -492,26 +437,43 @@ Unhook: Remove an input handler
             }
             else
             {
+                string pathCreatedWarning = "";
+                string relFolderPath = Path.GetDirectoryName(cmds);
+                //NOTE: This may fail if we do something with a network drive?
+                string absFolderPath = Path.GetFullPath(relFolderPath);
+                bool exists = System.IO.Directory.Exists(absFolderPath);
+                if (!exists)
+                {
+                    pathCreatedWarning = $"Folder {relFolderPath} did not exist. It was created. \nThe absolute path is {absFolderPath}";
+                    Log.Warn(pathCreatedWarning);
+                    System.IO.Directory.CreateDirectory(absFolderPath);
+                }
+
                 // This is not an adiquite solution, but it works for the moment. 
                 // none of the log4net messages get into this log. It may be better
                 // to use log4net instead and toggle timesamps on and off through the appender?
-                _scriptLog = new StreamWriter(cmds);
+                _scriptLog = new StreamWriter(cmds, true);
                 _scriptLog.AutoFlush = true;
                 _logging = true;
                 string now = DateTime.Now.ToString("yyyy-MMM-dd HH:mm:ss.fff");
+                if (pathCreatedWarning != string.Empty)
+                {
+                    _scriptLog.WriteLine("Warning: " + pathCreatedWarning);
+                }
+                string name = System.Reflection.Assembly.GetEntryAssembly().GetName().Name;
+                string version = System.Reflection.Assembly.GetEntryAssembly().GetName().Version.ToString();
+                _scriptLog.WriteLine($"{name} - v {version}");
                 WriteConsole($"------------- Opened {cmds} at {now} -----------------");
             }
         }
+
 
         public void Show(string cmds)
         {
             //TODO: settings, cwd, 
             if (cmds == "version")
             {
-                System.Reflection.Assembly assembly = System.Reflection.Assembly.GetExecutingAssembly();
-                FileVersionInfo fvi = FileVersionInfo.GetVersionInfo(assembly.Location);
-                string version = fvi.FileVersion;
-                WriteConsole(version);
+                WriteConsole(System.Reflection.Assembly.GetEntryAssembly().GetName().Version.ToString()+"\n");
             }
             else if (cmds == "ports")
             {

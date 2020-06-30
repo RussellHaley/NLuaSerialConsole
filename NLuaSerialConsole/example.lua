@@ -4,8 +4,8 @@ local sf = string.format
 local cmds = {}
 local PAUSE = 50
 local ONE_SEC = 1000
-Open()
-Script('output/v0.2_fixed_test.txt')
+--Open()
+Script('output/test2/v0.2_fixed_test.txt')
 
 local cmds = {
 "dipi",

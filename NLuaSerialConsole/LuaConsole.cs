@@ -145,15 +145,45 @@ Switches:
     Example: ?src.PortName
     (Equivelent to the lua command print(src.PortName)
 
-Important Lua Functions:
-
-log - The application logger. Uses log4net. example: log:Error(""Oops"")
-    [Error|Warn|Info|Debug].
+Type >commands to see the list of lua commands.
 ";
             WriteConsole(sb.ToString());
             Console.Write(help);
         }
 
+        public void commands()
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("These are the commands available through Lua:");
+            string help = @"
+SetBinary:      bool   - Tells the console if the input/output is binaryy. Data received from the target is displayed in hex
+WriteConsole:   string - Write to this host output
+print                  - synonym for WriteConsole
+ReadConsole            - Wait for user input
+Send:           string - Send a text string. 
+SendBinary:     string - Send a binary string (RH - Is this a necessary command given strings hold binary data in lua?)
+Script:         string - Log the input and output streams to a file. (e.g. record everything that goes to the target and everything that comes back).	
+				            There is currently no timestamps
+EndScript              - Close the input streams created in script. 
+OpenPort:       string - Open the specified serial port
+Open                   - Open the default serial port. The default port is set in the config file or manually set using SetPort
+ClosePort              - Close the current open port
+Show:           string - [ports|version] - Displays avaialble ports or the application version.
+IsOpen                 - returns true if the serial port is open
+GetPort                - Returns serial port information
+SetPort:        string - set the serial port
+GetSettings: <not implemeneted>
+Log                     - This is the logger object and can be used as:
+	Log.Info | 	Log.Debug | Log.Warn | Log.Error | Log.Fatal
+
+(Experimental commands)
+WireUp: add an input handler 
+Unhook: Remove an input handler
+
+";
+            WriteConsole(sb.ToString());
+            Console.Write(help);
+        }
         private Lua NewEnv()
         {
             Lua env = new Lua();
@@ -400,6 +430,9 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
                                         case "help":
                                             help();
                                             break;
+                                        case "commands":
+                                            commands();
+                                            break;
                                         default:
                                             Log.WarnFormat("{0} is not a command.", input);
                                             break;
@@ -541,6 +574,7 @@ log - The application logger. Uses log4net. example: log:Error(""Oops"")
 
         public void WriteConsole(string data)
         {
+            //TODO Check if file is open. on error, this can esplode!
             if(_logging)
             {
                 _scriptLog.Write(data);                

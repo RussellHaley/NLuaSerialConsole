@@ -2,9 +2,10 @@ local sl = require('libstarfish')
 local sf = string.format
 
 local cmds = {}
-
+local PAUSE = 50
+local ONE_SEC = 1000
 Open()
-Script('test.txt')
+Script('output/v0.2_fixed_test.txt')
 
 local cmds = {
 "dipi",
@@ -22,55 +23,68 @@ local cmds2 = {
 "0 setLoggingMask",
 "epi"
 }
-SetBinary(true)
-for index ,value in pairs(cmds) do
-    for char in value:gmatch(".") do
+
+local function slowSend(text)
+	for char in text:gmatch(".") do
         SendBinary(char)
         sl.msleep(1)
     end
-    SendBinary("\r")
-    sl.msleep(1)
-    
-    SendBinary("\n")
-    sl.msleep(1)
-    
-    sl.msleep(1000)
 end
 
-sl.msleep(60000)
 
-for index ,value in pairs(cmds2) do
-    for char in value:gmatch(".") do
-        SendBinary(char)
-        sl.msleep(1)
-    end
-    SendBinary("\r")
-    sl.msleep(1)
-    
-    SendBinary("\n")
-    sl.msleep(1)
-    
-    sl.msleep(1000)
+local function main(slow)
+	--SetBinary(true)
+	slowSend("\n")
+	for index ,cmd in pairs(cmds) do
+		if slow then
+			slowSend(cmd)
+			slowSend("\n")
+		else
+			SendBinary(cmd)
+			SendBinary("\n")
+		end
+		sl.msleep(PAUSE)
+	end
+
+	sl.msleep(ONE_SEC * 60)
+
+	slowSend("\r\n")
+	for index ,cmd in pairs(cmds2) do
+		if slow then			
+			slowSend(cmd)
+			slowSend("\n")
+		else
+			SendBinary(cmd)
+			SendBinary("\n")
+
+		end
+		sl.msleep(PAUSE)
+	end
+
+	Script("close") --This is terrible command. Needs to be fixed.
+	ClosePort()
+
 end
-
-Script("close") --This is terrible command. Needs to be fixed.
-ClosePort()
-
+local SLOW = true
+main(SLOW)
 
 --~ SetBinary: bool - Tells the console if the input/output is binaryy. Data received from the target is displayed in hex
 --~ WriteConsole: string - Write to this host output
 --~ print - synonym for WriteConsole
 --~ ReadConsole - Wait for user input
---~ SendBinary: string - Send a binary string
---~ Script: string - run the script at indicated by the string (path) provided
+--~ Send: string - Send a text string. 
+--~ SendBinary: string - Send a binary string (RH - Is this a necessary command given strings hold binary data in lua?)
+--~ Script: string - Logg the input and output streams to a file. (e.g. record everything that goes to the target and everything that comes back).	
+--~					There is currently no timestamps
+--~ EndScript
 --~ OpenPort: string - Open the specified serial port
---~ Open - Open the currently set serial port 
+--~ Open - Open the default serial port. The default port is set in the config file or manually set using SetPort
 --~ ClosePort - Close the current open port
 --~ Show: string [ports | ?] - display information
 --~ IsOpen - returns true if the serial port is open
 --~ GetPort - Returns serial port information
 --~ SetPort: string - set the serial port
---~ GetSettings: ?
+--~ GetSettings: <not implemeneted>
 --~ Log - This is the logger object and can be used as so:
 --~ 	Log.Info
 --~ 	Log.Debug

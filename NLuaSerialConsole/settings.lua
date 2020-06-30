@@ -1,9 +1,10 @@
-﻿settings = 
+﻿--line_ending can be 'windows' or 'unix'
+settings = 
 {
 	console_name = 'NLua Serial Console',
-	line_ending = 'windows',
+	line_ending = 'unix',
 	serial_port = {
-			com_port='COM12',
+			com_port='COM6',
 			baud_rate=230400
 	},
 --	script_path = 'c:\\users\\russh\\source\\repos\\NLuaSerialConsole\\Lua\\protocols\\sfdq'

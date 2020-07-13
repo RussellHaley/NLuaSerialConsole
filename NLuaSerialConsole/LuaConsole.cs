@@ -84,26 +84,34 @@ namespace NLuaSerialConsole
         }
 
         private void DefaultProcessReceived(byte[] buf)
-        {       
+        {
+            ///TODO - I will need to add a queue here to separate the 
+            ///line processing from processing the byte buffer.
                 string str = "";
-                if (_binary)
-                {
+            if (_binary)
+            {
 
-                    for (int i = 0; i < buf.Length; i++)
-                    {
-                        str += string.Format("{0:X} ", buf[i]);
-                    }
-                }
-                else
+                for (int i = 0; i < buf.Length; i++)
                 {
-                    str = Encoding.ASCII.GetString(buf);
-                    int len = _lastMessage.Length;
-                    //This is to stip off whatever the user typed. It's a terrible idea.
-                    if (!string.IsNullOrEmpty(_lastMessage) && str.Length >= len && str.Substring(0, len) == _lastMessage)
-                    {
-                        str = str.Substring(len);
-                    }
+                    str += string.Format("{0:X} ", buf[i]);
                 }
+            }
+            else
+            {
+                str = Encoding.ASCII.GetString(buf);
+
+                ///2020-07-13: RH - This was done to counter the echo of characers when interfacing 
+                ///with a linux shell. It may be entirely unnecessary If I can turn off echo. Regardless, 
+                ///When using nluaserial console with an embedded device (current use case), it is unnecessary.
+                ///AND, this implementation was a terrible idea.
+
+                //int len = _lastMessage.Length;
+                ////This is to stip off whatever the user typed. It's a terrible idea.
+                //if (!string.IsNullOrEmpty(_lastMessage) && str.Length >= len && str.Substring(0, len) == _lastMessage)
+                //{
+                //    str = str.Substring(len);
+                //}
+            }
                 WriteConsole(str);
             if(_luaDataReceiveHandler != null)
             {
@@ -412,11 +420,11 @@ namespace NLuaSerialConsole
 
         public void CloseScript()
         {
+            _logging = false;
             if (_scriptLog != null)
             {
                 _scriptLog.Close();
-            }
-            _logging = false;
+            }            
             string now = DateTime.Now.ToString("yyyy-MMM-dd HH:mm:ss.fff");
             WriteConsole($"-----------Closed file at {now} -----------------");
         }
@@ -536,12 +544,19 @@ namespace NLuaSerialConsole
 
         public void WriteConsole(string data)
         {
-            //TODO Check if file is open. on error, this can esplode!
-            if(_logging)
+            try
             {
-                _scriptLog.Write(data);                
+                //TODO Check if file is open. on error, this can esplode!
+                if (_logging)
+                {
+                    _scriptLog.Write(data);
+                }
+                Console.Write(data);
             }
-            Console.Write(data);
+            catch(Exception ex)
+            {
+                Log.Error(ex.Message);
+            }
         }
 
         public string ReadConsole()

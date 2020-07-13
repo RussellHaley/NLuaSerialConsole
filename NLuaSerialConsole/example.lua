@@ -4,7 +4,8 @@ local sf = string.format
 local cmds = {}
 local PAUSE = 50
 local ONE_SEC = 1000
---Open()
+-- Need to investigate why this open command doesn't work?
+--Open() 
 Script('output/test2/v0.2_fixed_test.txt')
 
 local cmds = {
@@ -60,9 +61,10 @@ local function main(slow)
 		end
 		sl.msleep(PAUSE)
 	end
-
-	Script("close") --This is terrible command. Needs to be fixed.
+	
 	ClosePort()
+	sl.msleep(250)
+	Script("close") --This is terrible command. Needs to be fixed.
 
 end
 local SLOW = true
